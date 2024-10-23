@@ -2,6 +2,7 @@
 #define __IMAGE_H
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #define INFO(...) do {fprintf(stderr, "[          ] [ INFO ] "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); fflush(stderr);} while(0)
 #define ERROR(...) do {fprintf(stderr, "[          ] [ ERR  ] "); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); fflush(stderr);} while(0) 

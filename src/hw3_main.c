@@ -1,58 +1,149 @@
 #include "qtree.h"
 #include "image.h"
-
 #include "tests_utils.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
+
+// Helper function to compare images
+static int compare_images(Image *img1, Image *img2) {
+    if (!img1 || !img2) return 0;
+    if (get_image_width(img1) != get_image_width(img2) || 
+        get_image_height(img1) != get_image_height(img2)) return 0;
+    
+    for (unsigned int i = 0; i < get_image_height(img1); i++) {
+        for (unsigned int j = 0; j < get_image_width(img1); j++) {
+            if (get_image_intensity(img1, i, j) != get_image_intensity(img2, i, j)) 
+                return 0;
+        }
+    }
+    return 1;
+}
+
+// Test quadtree creation and basic properties
+void test_quadtree_creation() {
+    printf("Testing quadtree creation...\n");
+    
+    prepare_input_image_file("building1.ppm");
+    Image *image = load_image("images/building1.ppm");
+    assert(image != NULL);
+    
+    double max_rmse = 25;
+    QTNode *root = create_quadtree(image, max_rmse);
+    assert(root != NULL);
+    
+    // Test basic node properties
+    assert(get_node_intensity(root) >= 0);
+    assert(get_node_intensity(root) <= 255);
+    
+    // Test child access functions
+    QTNode *child1 = get_child1(root);
+    QTNode *child2 = get_child2(root);
+    QTNode *child3 = get_child3(root);
+    QTNode *child4 = get_child4(root);
+    
+    // At least one child should exist for this image
+    assert(child1 != NULL || child2 != NULL || child3 != NULL || child4 != NULL);
+    
+    delete_quadtree(root);
+    delete_image(image);
+    printf("Quadtree creation tests passed!\n");
+}
+
+// Test quadtree file I/O
+void test_quadtree_io() {
+    printf("Testing quadtree I/O...\n");
+    
+    // Create a quadtree
+    Image *image = load_image("images/building1.ppm");
+    QTNode *root = create_quadtree(image, 25);
+    
+    // Test save_preorder_qt
+    save_preorder_qt(root, "tests/output/save_preorder_qt1_qtree.txt");
+    
+    // Load the saved quadtree
+    QTNode *loaded_root = load_preorder_qt("tests/output/save_preorder_qt1_qtree.txt");
+    assert(loaded_root != NULL);
+    
+    // Save both trees as PPM and compare
+    save_qtree_as_ppm(root, "tests/output/original_qt.ppm");
+    save_qtree_as_ppm(loaded_root, "tests/output/loaded_qt.ppm");
+    
+    Image *original_img = load_image("tests/output/original_qt.ppm");
+    Image *loaded_img = load_image("tests/output/loaded_qt.ppm");
+    
+    assert(compare_images(original_img, loaded_img));
+    
+    delete_quadtree(root);
+    delete_quadtree(loaded_root);
+    delete_image(image);
+    delete_image(original_img);
+    delete_image(loaded_img);
+    printf("Quadtree I/O tests passed!\n");
+}
+
+// Test steganography functions
+void test_steganography() {
+    printf("Testing steganography...\n");
+    
+    // Test message hiding/revealing
+    prepare_input_image_file("wolfie-tiny.ppm");
+    const char *test_message = "0000000000111111111122222222223333333333";
+    
+    // First check if image can hold the message
+    Image *test_img = load_image("images/wolfie-tiny.ppm");
+    assert(test_img != NULL);
+    
+    size_t max_chars = (test_img->width * test_img->height) / 8 - 1;
+    printf("Image can hold up to %zu characters\n", max_chars);
+    printf("Test message length: %zu characters\n", strlen(test_message));
+    
+    unsigned int expected_chars = (strlen(test_message) < max_chars) ? 
+                                 strlen(test_message) : max_chars;
+    
+    unsigned int chars_hidden = hide_message((char*)test_message, 
+                                           "images/wolfie-tiny.ppm",
+                                           "tests/output/hide_message1.ppm");
+    
+    printf("Characters hidden: %u\n", chars_hidden);
+    printf("Expected characters: %u\n", expected_chars);
+    assert(chars_hidden == expected_chars);
+    
+    char *revealed = reveal_message("tests/output/hide_message1.ppm");
+    assert(revealed != NULL);
+    
+    // Compare only the number of characters that were actually hidden
+    assert(strncmp(revealed, test_message, chars_hidden) == 0);
+    free(revealed);
+    delete_image(test_img);
+    
+    // Test image hiding/revealing
+    prepare_input_image_file("building1.ppm");
+    prepare_input_image_file("wolfie-tiny.ppm");
+    
+    unsigned int success = hide_image("images/wolfie-tiny.ppm",
+                                    "images/building1.ppm",
+                                    "tests/output/hide_image1.ppm");
+    assert(success == 1);
+    
+    reveal_image("tests/output/hide_image1.ppm",
+                 "tests/output/reveal_image1.ppm");
+    
+    printf("Steganography tests passed!\n");
+}
 
 int main() {
+    // Create output directory if needed
     struct stat st;
     if (stat("tests/output", &st) == -1)
         mkdir("tests/output", 0700);
-    prepare_input_image_file("building1.ppm"); // copies the image to the images/ directory
-
-    /******************************* create_quadtree *******************************/
-    double max_rmse = 25;
-    Image *image = load_image("images/building1.ppm");
-    QTNode *root = create_quadtree(image, max_rmse);
-    // See tests/input/load_preorder_qt1_qtree.txt for the expected results
-    // You will need to write your own code to verify that your quadtree was constructed properly
-    delete_quadtree(root);
-    delete_image(image);
-
-    /******************************* load_preorder_qt *******************************/
-    // tests/input/load_preorder_qt1_qtree.txt was generated by executing the following code:
-    //   QTNode *root = create_quadtree(load_image("images/building1.ppm"), 25);
-    root = load_preorder_qt("tests/input/load_preorder_qt1_qtree.txt");
-    // You will need to write your own code to verify that your quadtree was constructed properly
-    delete_quadtree(root); 
-
-    /******************************* save_preorder_qt *******************************/
-    image = load_image("images/building1.ppm"); 
-    root = create_quadtree(image, 25);
-    // See tests/input/load_preorder_qt1_qtree.txt for expected output
-    save_preorder_qt(root, "tests/output/save_preorder_qt1_qtree.txt");
-    delete_quadtree(root);
-    delete_image(image);
-
-    /******************************* save_qtree_as_ppm *******************************/
-    image = load_image("images/building1.ppm"); 
-    root = create_quadtree(image, 25);
-    save_qtree_as_ppm(root, "tests/output/save_qtree_as_ppm1.ppm");
-    // See tests/expected/save_qtree_as_ppm1.ppm for the expected file.
-    // Visual inspection is generally not sufficient to determine if your output image is correct.
-    // You will need to write code to more rigorously check your output image for correctness.
-    delete_image(image); 
-    delete_quadtree(root);
-
-    /******************************* hide_message and reveal_message *******************************/
-    prepare_input_image_file("wolfie-tiny.ppm");
-    hide_message("0000000000111111111122222222223333333333", "images/wolfie-tiny.ppm", "tests/output/hide_message1.ppm");
-    char *message = reveal_message("tests/output/hide_message1.ppm");
-    printf("Message: %s\n", message);
-    free(message);
-
-    /******************************* hide_image and reveal_image *******************************/
-    hide_image("images/wolfie-tiny.ppm", "images/building1.ppm", "tests/output/hide_image1.ppm");
-    reveal_image("tests/output/hide_image1.ppm", "tests/output/reveal_image1.ppm");
-
+        
+    // Run all tests
+    test_quadtree_creation();
+    test_quadtree_io();
+    test_steganography();
+    
+    printf("\nAll tests completed successfully!\n");
     return 0;
 }

@@ -1,5 +1,7 @@
 #include "image.h"
 #include <string.h>
+#include <stdint.h>
+#include <ctype.h>
 
 Image *load_image(char *filename) {
     FILE *fp = fopen(filename, "r");
@@ -11,38 +13,65 @@ Image *load_image(char *filename) {
         return NULL;
     }
 
+    // Read magic number
     char magic[3];
-    fscanf(fp, "%s", magic);
-    if (magic[0] != 'P' || magic[1] != '3') {
+    if (fscanf(fp, "%2s", magic) != 1 || magic[0] != 'P' || magic[1] != '3') {
         free(img);
         fclose(fp);
         return NULL;
     }
 
-    // Skip comments
-    int c = getc(fp);
-    while (c == '#') {
-        while (getc(fp) != '\n');
-        c = getc(fp);
+    // Skip whitespace and comments
+    int c;
+    while ((c = fgetc(fp)) != EOF) {
+        if (c == '#') {
+            // Skip until end of line
+            while ((c = fgetc(fp)) != EOF && c != '\n');
+        } else if (!isspace(c)) {
+            ungetc(c, fp);
+            break;
+        }
     }
-    ungetc(c, fp);
 
-    int max_val;
-    fscanf(fp, "%hu %hu", &img->width, &img->height);
-    fscanf(fp, "%d", &max_val);
+    // Read dimensions and max value
+    int width, height, max_val;
+    if (fscanf(fp, "%d %d %d", &width, &height, &max_val) != 3 ||
+        width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
+        max_val != 255) {
+        free(img);
+        fclose(fp);
+        return NULL;
+    }
 
-    img->pixels = malloc(img->width * img->height * sizeof(unsigned char));
+    img->width = (unsigned short)width;
+    img->height = (unsigned short)height;
+
+    // Allocate pixel array
+    size_t num_pixels = (size_t)img->width * (size_t)img->height;
+    if (num_pixels > SIZE_MAX / sizeof(unsigned char)) {
+        free(img);
+        fclose(fp);
+        return NULL;
+    }
+
+    img->pixels = malloc(num_pixels * sizeof(unsigned char));
     if (!img->pixels) {
         free(img);
         fclose(fp);
         return NULL;
     }
 
-    // Read pixel data (only storing grayscale values)
-    for (int i = 0; i < img->width * img->height; i++) {
+    // Read pixel data
+    for (size_t i = 0; i < num_pixels; i++) {
         int r, g, b;
-        fscanf(fp, "%d %d %d", &r, &g, &b);
-        img->pixels[i] = (unsigned char)r;
+        if (fscanf(fp, "%d %d %d", &r, &g, &b) != 3 ||
+            r < 0 || r > 255 || g < 0 || g > 255 || b < 0 || b > 255) {
+            free(img->pixels);
+            free(img);
+            fclose(fp);
+            return NULL;
+        }
+        img->pixels[i] = (unsigned char)r;  // Store grayscale value
     }
 
     fclose(fp);
@@ -71,9 +100,13 @@ unsigned short get_image_height(Image *image) {
 }
 
 unsigned int hide_message(char *message, char *input_filename, char *output_filename) {
+    if (!message || !input_filename || !output_filename) return 0;
+    
     Image *img = load_image(input_filename);
-    if (!img || !message || !output_filename) return 0;
+    if (!img) return 0;
 
+    // Calculate maximum message length (including null terminator)
+    // Each character uses 8 pixels, and we need 8 more pixels for null terminator
     unsigned int max_chars = (img->width * img->height) / 8 - 1;
     unsigned int msg_len = strlen(message);
     unsigned int chars_to_hide = (msg_len < max_chars) ? msg_len : max_chars;
@@ -84,26 +117,32 @@ unsigned int hide_message(char *message, char *input_filename, char *output_file
         return 0;
     }
 
+    // Write PPM header
     fprintf(fp, "P3\n%d %d\n255\n", img->width, img->height);
 
     unsigned int bit_idx = 0;
     unsigned int char_idx = 0;
     unsigned char current_char = message[0];
 
+    // Hide message in image pixels
     for (unsigned int i = 0; i < img->height * img->width; i++) {
         unsigned char pixel = img->pixels[i];
         
+        // Modify pixels while we still have characters to hide
         if (char_idx <= chars_to_hide) {
+            // Clear LSB and set it to current bit of character
             pixel = (pixel & 0xFE) | ((current_char >> (7 - bit_idx)) & 1);
             
             bit_idx++;
             if (bit_idx == 8) {
                 bit_idx = 0;
                 char_idx++;
+                // Get next character or null terminator
                 current_char = (char_idx <= chars_to_hide) ? message[char_idx] : '\0';
             }
         }
 
+        // Write the pixel (same value for R,G,B since grayscale)
         fprintf(fp, "%d %d %d ", pixel, pixel, pixel);
     }
 
@@ -113,10 +152,14 @@ unsigned int hide_message(char *message, char *input_filename, char *output_file
 }
 
 char *reveal_message(char *input_filename) {
+    if (!input_filename) return NULL;
+    
     Image *img = load_image(input_filename);
     if (!img) return NULL;
 
-    char *message = malloc(((img->width * img->height) / 8) * sizeof(char));
+    // Allocate space for the message
+    size_t max_msg_len = (img->width * img->height) / 8;
+    char *message = malloc(max_msg_len * sizeof(char));
     if (!message) {
         delete_image(img);
         return NULL;
@@ -126,7 +169,9 @@ char *reveal_message(char *input_filename) {
     unsigned int char_idx = 0;
     unsigned char current_char = 0;
 
-    for (unsigned int i = 0; i < img->height * img->width; i++) {
+    // Extract message from image pixels
+    for (unsigned int i = 0; i < img->height * img->width && char_idx < max_msg_len - 1; i++) {
+        // Get LSB from current pixel
         current_char = (current_char << 1) | (img->pixels[i] & 1);
         bit_idx++;
 
@@ -140,9 +185,15 @@ char *reveal_message(char *input_filename) {
         }
     }
 
+    // Ensure null termination
+    if (char_idx < max_msg_len) {
+        message[char_idx] = '\0';
+    }
+
     delete_image(img);
     return message;
 }
+
 
 unsigned int hide_image(char *secret_image_filename, char *input_filename, char *output_filename) {
     Image *secret = load_image(secret_image_filename);

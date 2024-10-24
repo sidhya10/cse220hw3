@@ -156,20 +156,81 @@ void save_qtree_as_ppm(QTNode *root, char *filename) {
 static void save_preorder_qt_recursive(QTNode *node, FILE *fp) {
     if (!node || !fp) return;
     
-    // Determine if node is leaf or internal
-    char type = (node->child1 || node->child2 || node->child3 || node->child4) ? 'N' : 'L';
-    
-    // Write node data
-    fprintf(fp, "%c %u %u %u %u %u\n", type, node->intensity, node->row, 
-            node->height, node->col, node->width);
-    
-    // Recursively write children if this is an internal node
-    if (type == 'N') {
-        if (node->child1) save_preorder_qt_recursive(node->child1, fp);
-        if (node->child2) save_preorder_qt_recursive(node->child2, fp);
-        if (node->child3) save_preorder_qt_recursive(node->child3, fp);
-        if (node->child4) save_preorder_qt_recursive(node->child4, fp);
+    // Determine if this is a leaf or internal node
+    char type = 'L';  // Default to leaf
+    if (node->child1 || node->child2 || node->child3 || node->child4) {
+        type = 'N';   // It's an internal node if it has any children
     }
+    
+    // Write the node's data
+    fprintf(fp, "%c %u %u %u %u %u\n", 
+            type,
+            node->intensity,
+            node->row,
+            node->height,
+            node->col,
+            node->width);
+    
+    // Only recurse if this is an internal node
+    if (type == 'N') {
+        // Write all children, even NULL ones
+        if (node->child1)
+            save_preorder_qt_recursive(node->child1, fp);
+        if (node->child2)
+            save_preorder_qt_recursive(node->child2, fp);
+        if (node->child3)
+            save_preorder_qt_recursive(node->child3, fp);
+        if (node->child4)
+            save_preorder_qt_recursive(node->child4, fp);
+    }
+}
+
+static QTNode *load_preorder_qt_recursive(FILE *fp) {
+    if (!fp) return NULL;
+    
+    char type;
+    unsigned int intensity, row, height, col, width;
+    
+    // Read the node data
+    if (fscanf(fp, " %c %u %u %u %u %u\n", 
+               &type, &intensity, &row, &height, &col, &width) != 6) {
+        return NULL;
+    }
+    
+    // Create the node
+    QTNode *node = malloc(sizeof(QTNode));
+    if (!node) return NULL;
+    
+    // Initialize node data
+    node->intensity = intensity;
+    node->row = row;
+    node->height = height;
+    node->col = col;
+    node->width = width;
+    node->child1 = NULL;
+    node->child2 = NULL;
+    node->child3 = NULL;
+    node->child4 = NULL;
+    
+    // If it's an internal node, load its children
+    if (type == 'N') {
+        // Try to load all four children
+        // The recursive call will return NULL if no more nodes exist
+        node->child1 = load_preorder_qt_recursive(fp);
+        node->child2 = load_preorder_qt_recursive(fp);
+        node->child3 = load_preorder_qt_recursive(fp);
+        node->child4 = load_preorder_qt_recursive(fp);
+        
+        // If we couldn't load any children for an internal node,
+        // something is wrong with the file format
+        if (!node->child1 && !node->child2 && 
+            !node->child3 && !node->child4) {
+            free(node);
+            return NULL;
+        }
+    }
+    
+    return node;
 }
 
 void save_preorder_qt(QTNode *root, char *filename) {
@@ -179,41 +240,12 @@ void save_preorder_qt(QTNode *root, char *filename) {
     if (!fp) return;
     
     save_preorder_qt_recursive(root, fp);
-    
     fclose(fp);
 }
 
-static QTNode *load_preorder_qt_recursive(FILE *fp) {
-    if (!fp) return NULL;
-    
-    char type;
-    unsigned int intensity, row, height, col, width;
-    
-    if (fscanf(fp, " %c %u %u %u %u %u\n", &type, &intensity, &row, 
-               &height, &col, &width) != 6)
-        return NULL;
-    
-    QTNode *node = malloc(sizeof(QTNode));
-    if (!node) return NULL;
-    
-    node->intensity = intensity;
-    node->row = row;
-    node->height = height;
-    node->col = col;
-    node->width = width;
-    node->child1 = node->child2 = node->child3 = node->child4 = NULL;
-    
-    if (type == 'N') {
-        node->child1 = load_preorder_qt_recursive(fp);
-        node->child2 = load_preorder_qt_recursive(fp);
-        node->child3 = load_preorder_qt_recursive(fp);
-        node->child4 = load_preorder_qt_recursive(fp);
-    }
-    
-    return node;
-}
-
 QTNode *load_preorder_qt(char *filename) {
+    if (!filename) return NULL;
+    
     FILE *fp = fopen(filename, "r");
     if (!fp) return NULL;
     

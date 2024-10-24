@@ -428,10 +428,87 @@ void test_steganography_moderate() {
     printf("Moderate steganography tests passed!\n");
 }
 
+void test_preorder_output(QTNode *root, char *expected_filename) {
+    // First save our tree
+    save_preorder_qt(root, "tests/output/test_preorder.txt");
+    
+    // Open both files
+    FILE *exp = fopen(expected_filename, "r");
+    FILE *out = fopen("tests/output/test_preorder.txt", "r");
+    if (!exp || !out) {
+        printf("Failed to open files for comparison\n");
+        if (exp) fclose(exp);
+        if (out) fclose(out);
+        return;
+    }
+
+    char exp_line[256], out_line[256];
+    int line_num = 1;
+    
+    // Compare line by line
+    while (fgets(exp_line, sizeof(exp_line), exp)) {
+        if (!fgets(out_line, sizeof(out_line), out)) {
+            printf("Output file is shorter than expected at line %d\n", line_num);
+            break;
+        }
+        
+        // Parse and compare each line
+        char exp_type, out_type;
+        unsigned int exp_i, exp_r, exp_h, exp_c, exp_w;
+        unsigned int out_i, out_r, out_h, out_c, out_w;
+        
+        sscanf(exp_line, "%c %u %u %u %u %u", 
+               &exp_type, &exp_i, &exp_r, &exp_h, &exp_c, &exp_w);
+        sscanf(out_line, "%c %u %u %u %u %u", 
+               &out_type, &out_i, &out_r, &out_h, &out_c, &out_w);
+        
+        // Compare values
+        if (exp_type != out_type || exp_i != out_i || exp_r != out_r ||
+            exp_h != out_h || exp_c != out_c || exp_w != out_w) {
+            printf("Mismatch at line %d:\n", line_num);
+            printf("Expected: %c %u %u %u %u %u\n", 
+                   exp_type, exp_i, exp_r, exp_h, exp_c, exp_w);
+            printf("Got:      %c %u %u %u %u %u\n", 
+                   out_type, out_i, out_r, out_h, out_c, out_w);
+        }
+        
+        line_num++;
+    }
+    
+    // Check if output file is longer than expected
+    if (fgets(out_line, sizeof(out_line), out)) {
+        printf("Output file is longer than expected\n");
+    }
+    
+    fclose(exp);
+    fclose(out);
+}
+
 int main() {
     struct stat st;
     if (stat("tests/output", &st) == -1)
         mkdir("tests/output", 0700);
+
+
+    // Test quadtree preorder save/load
+    prepare_input_image_file("building1.ppm");
+    Image *image = load_image("images/building1.ppm");
+    QTNode *root = create_quadtree(image, 25);
+    
+    // Compare with expected output
+    test_preorder_output(root, "tests/input/load_preorder_qt1_qtree.txt");
+
+    // Test loading from file
+    QTNode *loaded_root = load_preorder_qt("tests/input/load_preorder_qt1_qtree.txt");
+    
+    // Save loaded tree and compare again to verify loading worked correctly
+    test_preorder_output(loaded_root, "tests/input/load_preorder_qt1_qtree.txt");
+
+    delete_quadtree(root);
+    delete_quadtree(loaded_root);
+    delete_image(image);
+    
+    printf("Preorder tests completed\n");
 
     test_create_quadtree_detailed();
     test_save_preorder_detailed();

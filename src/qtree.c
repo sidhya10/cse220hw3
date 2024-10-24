@@ -9,12 +9,13 @@ static double calculate_rmse(Image *image, unsigned int start_row,
     double sum_squared_diff = 0.0;
     int count = 0;
     
-    for (unsigned int i = start_row; i < start_row + height && i < image->height; i++) {
-        for (unsigned int j = start_col; j < start_col + width && j < image->width; j++) {
-            double intensity = get_image_intensity(image, i, j);
-            double diff = intensity - avg_intensity;
-            sum_squared_diff += diff * diff;
-            count++;
+    for (unsigned int i = start_row; i < start_row + height; i++) {
+        for (unsigned int j = start_col; j < start_col + width; j++) {
+            if (i < image->height && j < image->width) {
+                double diff = get_image_intensity(image, i, j) - avg_intensity;
+                sum_squared_diff += diff * diff;
+                count++;
+            }
         }
     }
     
@@ -29,10 +30,12 @@ static double calculate_average_intensity(Image *image, unsigned int start_row,
     double sum = 0.0;
     int count = 0;
     
-    for (unsigned int i = start_row; i < start_row + height && i < image->height; i++) {
-        for (unsigned int j = start_col; j < start_col + width && j < image->width; j++) {
-            sum += get_image_intensity(image, i, j);
-            count++;
+    for (unsigned int i = start_row; i < start_row + height; i++) {
+        for (unsigned int j = start_col; j < start_col + width; j++) {
+            if (i < image->height && j < image->width) {
+                sum += get_image_intensity(image, i, j);
+                count++;
+            }
         }
     }
     
@@ -51,34 +54,15 @@ static QTNode *create_node(Image *image, unsigned int row, unsigned int col,
     node->child1 = node->child2 = node->child3 = node->child4 = NULL;
     
     double avg = calculate_average_intensity(image, row, col, height, width);
-    node->intensity = (unsigned char)(avg + 0.5); // proper rounding
+    node->intensity = (unsigned char)avg;
     
     double rmse = calculate_rmse(image, row, col, height, width, avg);
     
-    if (rmse > max_rmse) {
-        // Handle single row/column cases specially
-        if (height == 1) {
-            unsigned int half_width = width / 2;
-            if (half_width > 0) {
-                node->child1 = create_node(image, row, col,
-                                         height, half_width, max_rmse);
-                node->child2 = create_node(image, row, col + half_width,
-                                         height, width - half_width, max_rmse);
-            }
-        }
-        else if (width == 1) {
-            unsigned int half_height = height / 2;
-            if (half_height > 0) {
-                node->child1 = create_node(image, row, col,
-                                         half_height, width, max_rmse);
-                node->child3 = create_node(image, row + half_height, col,
-                                         height - half_height, width, max_rmse);
-            }
-        }
-        else {
-            unsigned int half_height = height / 2;
-            unsigned int half_width = width / 2;
-            
+    if (rmse > max_rmse && (height > 1 || width > 1)) {
+        unsigned int half_height = height / 2;
+        unsigned int half_width = width / 2;
+        
+        if (half_width > 0 && half_height > 0) {
             node->child1 = create_node(image, row, col,
                                      half_height, half_width, max_rmse);
             node->child2 = create_node(image, row, col + half_width,
@@ -172,12 +156,14 @@ void save_qtree_as_ppm(QTNode *root, char *filename) {
 static void save_preorder_qt_recursive(QTNode *node, FILE *fp) {
     if (!node || !fp) return;
     
+    // Determine if node is leaf or internal
     char type = (node->child1 || node->child2 || node->child3 || node->child4) ? 'N' : 'L';
     
     // Write node data
     fprintf(fp, "%c %u %u %u %u %u\n", type, node->intensity, node->row, 
             node->height, node->col, node->width);
-            
+    
+    // Recursively write children if this is an internal node
     if (type == 'N') {
         if (node->child1) save_preorder_qt_recursive(node->child1, fp);
         if (node->child2) save_preorder_qt_recursive(node->child2, fp);
@@ -193,6 +179,7 @@ void save_preorder_qt(QTNode *root, char *filename) {
     if (!fp) return;
     
     save_preorder_qt_recursive(root, fp);
+    
     fclose(fp);
 }
 
@@ -201,19 +188,10 @@ static QTNode *load_preorder_qt_recursive(FILE *fp) {
     
     char type;
     unsigned int intensity, row, height, col, width;
-    int result;
     
-    // Use fscanf directly and check its return value
-    result = fscanf(fp, " %c %u %u %u %u %u", &type, &intensity, &row, 
-                    &height, &col, &width);
-    
-    // Check if we successfully read all 6 values
-    if (result != 6) {
+    if (fscanf(fp, " %c %u %u %u %u %u\n", &type, &intensity, &row, 
+               &height, &col, &width) != 6)
         return NULL;
-    }
-    
-    // Skip any remaining characters until newline
-    while (fgetc(fp) != '\n' && !feof(fp));
     
     QTNode *node = malloc(sizeof(QTNode));
     if (!node) return NULL;
@@ -227,40 +205,20 @@ static QTNode *load_preorder_qt_recursive(FILE *fp) {
     
     if (type == 'N') {
         node->child1 = load_preorder_qt_recursive(fp);
-        if (!node->child1) {
-            delete_quadtree(node);
-            return NULL;
-        }
-        
         node->child2 = load_preorder_qt_recursive(fp);
-        if (!node->child2) {
-            delete_quadtree(node);
-            return NULL;
-        }
-        
         node->child3 = load_preorder_qt_recursive(fp);
-        if (!node->child3) {
-            delete_quadtree(node);
-            return NULL;
-        }
-        
         node->child4 = load_preorder_qt_recursive(fp);
-        if (!node->child4) {
-            delete_quadtree(node);
-            return NULL;
-        }
     }
     
     return node;
 }
 
 QTNode *load_preorder_qt(char *filename) {
-    if (!filename) return NULL;
-    
     FILE *fp = fopen(filename, "r");
     if (!fp) return NULL;
     
     QTNode *root = load_preorder_qt_recursive(fp);
+    
     fclose(fp);
     return root;
 }

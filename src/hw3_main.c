@@ -133,17 +133,317 @@ void test_steganography() {
     printf("Steganography tests passed!\n");
 }
 
+void test_create_quadtree_detailed() {
+    printf("\nTesting create_quadtree in detail...\n");
+    
+    prepare_input_image_file("building1.ppm");
+    Image *image = load_image("images/building1.ppm");
+    assert(image != NULL);
+    
+    // Test different RMSE values
+    double rmse_values[] = {5.0, 25.0, 50.0, 100.0};
+    for (int i = 0; i < 4; i++) {
+        printf("Testing RMSE: %.1f\n", rmse_values[i]);
+        QTNode *root = create_quadtree(image, rmse_values[i]);
+        assert(root != NULL);
+        
+        // Basic node validation
+        assert(root->width == get_image_width(image));
+        assert(root->height == get_image_height(image));
+        assert(root->row == 0);
+        assert(root->col == 0);
+        
+        // Higher RMSE should result in fewer subdivisions
+        if (i > 0) {
+            // Save tree for comparison
+            char filename[100];
+            sprintf(filename, "tests/output/tree_rmse%.1f.txt", rmse_values[i]);
+            save_preorder_qt(root, filename);
+        }
+        
+        delete_quadtree(root);
+    }
+    
+    // Test edge cases
+    QTNode *null_result = create_quadtree(NULL, 25.0);
+    assert(null_result == NULL);
+    
+    QTNode *zero_rmse = create_quadtree(image, 0.0);
+    assert(zero_rmse != NULL);  // Should create maximum subdivision
+    delete_quadtree(zero_rmse);
+    
+    delete_image(image);
+    printf("create_quadtree tests passed!\n");
+}
+
+void test_save_preorder_detailed() {
+    printf("\nTesting save_preorder_qt in detail...\n");
+    
+    prepare_input_image_file("building1.ppm");
+    Image *image = load_image("images/building1.ppm");
+    assert(image != NULL);
+    
+    QTNode *root = create_quadtree(image, 25.0);
+    assert(root != NULL);
+    
+    // Test normal save
+    save_preorder_qt(root, "tests/output/test_save1.txt");
+    
+    // Verify by loading and comparing
+    QTNode *loaded_root = load_preorder_qt("tests/output/test_save1.txt");
+    assert(loaded_root != NULL);
+    
+    // Save both trees and compare the files
+    save_preorder_qt(root, "tests/output/original_tree.txt");
+    save_preorder_qt(loaded_root, "tests/output/loaded_tree.txt");
+    
+    // Compare the files (they should be identical)
+    FILE *f1 = fopen("tests/output/original_tree.txt", "r");
+    FILE *f2 = fopen("tests/output/loaded_tree.txt", "r");
+    assert(f1 && f2);
+    
+    char line1[256], line2[256];
+    while (fgets(line1, sizeof(line1), f1) && fgets(line2, sizeof(line2), f2)) {
+        assert(strcmp(line1, line2) == 0);
+    }
+    
+    fclose(f1);
+    fclose(f2);
+    
+    // Test edge cases
+    save_preorder_qt(NULL, "tests/output/null_tree.txt");
+    save_preorder_qt(root, NULL);
+    
+    delete_quadtree(root);
+    delete_quadtree(loaded_root);
+    delete_image(image);
+    printf("save_preorder_qt tests passed!\n");
+}
+
+void test_hide_message_detailed() {
+    printf("\nTesting hide_message in detail...\n");
+    
+    prepare_input_image_file("wolfie-tiny.ppm");
+    
+    // Test cases with different message lengths
+    const char *test_messages[] = {
+        "A",                    // Single character
+        "Hello, World!",        // Standard message
+        "",                     // Empty message
+        "0000000000111111111122222222223333333333",  // Long message
+        "Special chars: !@#$%^&*()"  // Special characters
+    };
+    
+    for (int i = 0; i < 5; i++) {
+        printf("Testing message: %s\n", test_messages[i]);
+        
+        char output_file[100];
+        sprintf(output_file, "tests/output/hidden_msg%d.ppm", i);
+        
+        unsigned int chars_hidden = hide_message((char*)test_messages[i], 
+                                               "images/wolfie-tiny.ppm",
+                                               output_file);
+                                               
+        assert(chars_hidden <= strlen(test_messages[i]));
+        
+        // Reveal and verify
+        char *revealed = reveal_message(output_file);
+        assert(revealed != NULL);
+        
+        // Compare the revealed message with original (up to chars_hidden)
+        assert(strncmp(revealed, test_messages[i], chars_hidden) == 0);
+        
+        free(revealed);
+    }
+    
+    // Test edge cases
+    unsigned int result;
+    
+    // NULL message
+    result = hide_message(NULL, "images/wolfie-tiny.ppm", "tests/output/null_msg.ppm");
+    assert(result == 0);
+    
+    // NULL input file
+    result = hide_message("Test", NULL, "tests/output/null_input.ppm");
+    assert(result == 0);
+    
+    // NULL output file
+    result = hide_message("Test", "images/wolfie-tiny.ppm", NULL);
+    assert(result == 0);
+    
+    // Non-existent input file
+    result = hide_message("Test", "nonexistent.ppm", "tests/output/bad_input.ppm");
+    assert(result == 0);
+    
+    printf("hide_message tests passed!\n");
+}
+static Image* create_test_image(unsigned short width, unsigned short height) {
+    Image *img = malloc(sizeof(Image));
+    if (!img) return NULL;
+    
+    img->width = width;
+    img->height = height;
+    img->pixels = malloc(width * height * sizeof(unsigned char));
+    
+    if (!img->pixels) {
+        free(img);
+        return NULL;
+    }
+    
+    // Create checkerboard pattern to force quadtree subdivisions
+    for (int i = 0; i < height; i++) {
+        for (int j = 0; j < width; j++) {
+            if ((i/8 + j/8) % 2) {
+                img->pixels[i * width + j] = 255;
+            } else {
+                img->pixels[i * width + j] = 0;
+            }
+        }
+    }
+    
+    return img;
+}
+
+void test_quadtree_moderate() {
+    printf("\nTesting quadtree with moderate cases...\n");
+    
+    // Test with different image sizes
+    unsigned short test_sizes[][2] = {
+        {64, 64},    // Small
+        {128, 96},   // Medium
+        {256, 192}   // Larger but still reasonable
+    };
+    
+    for (int i = 0; i < 3; i++) {
+        unsigned short width = test_sizes[i][0];
+        unsigned short height = test_sizes[i][1];
+        printf("Testing size %ux%u\n", width, height);
+        
+        Image *test_img = create_test_image(width, height);
+        assert(test_img != NULL);
+        
+        // Test different RMSE values
+        double rmse_values[] = {10.0, 25.0, 50.0};
+        for (int j = 0; j < 3; j++) {
+            printf("  Testing RMSE %.1f\n", rmse_values[j]);
+            
+            QTNode *root = create_quadtree(test_img, rmse_values[j]);
+            assert(root != NULL);
+            
+            // Save tree and verify
+            char filename[100];
+            sprintf(filename, "tests/output/tree_%dx%d_rmse%.1f.txt", 
+                    width, height, rmse_values[j]);
+            save_preorder_qt(root, filename);
+            
+            // Load saved tree and verify
+            QTNode *loaded = load_preorder_qt(filename);
+            assert(loaded != NULL);
+            
+            // Compare trees by saving to PPM and comparing pixels
+            save_qtree_as_ppm(root, "tests/output/original.ppm");
+            save_qtree_as_ppm(loaded, "tests/output/loaded.ppm");
+            
+            Image *img1 = load_image("tests/output/original.ppm");
+            Image *img2 = load_image("tests/output/loaded.ppm");
+            assert(img1 && img2);
+            
+            // Verify images match
+            assert(img1->width == img2->width);
+            assert(img1->height == img2->height);
+            for (int k = 0; k < img1->width * img1->height; k++) {
+                assert(img1->pixels[k] == img2->pixels[k]);
+            }
+            
+            delete_image(img1);
+            delete_image(img2);
+            delete_quadtree(root);
+            delete_quadtree(loaded);
+        }
+        
+        delete_image(test_img);
+    }
+    
+    printf("Moderate quadtree tests passed!\n");
+}
+
+void test_steganography_moderate() {
+    printf("\nTesting steganography with moderate cases...\n");
+    
+    // Test messages of different lengths
+    const char *test_messages[] = {
+        "This is a short message.",
+        "This is a medium length message that should still fit easily.",
+        "This is a longer message that will test the capacity of our steganography system. "
+        "It includes multiple sentences and should be long enough to verify proper handling "
+        "of larger amounts of text data."
+    };
+    
+    prepare_input_image_file("building1.ppm");
+    Image *cover = load_image("images/building1.ppm");
+    assert(cover != NULL);
+    
+    for (int i = 0; i < 3; i++) {
+        printf("Testing message %d (length: %zu)\n", i + 1, strlen(test_messages[i]));
+        
+        char outfile[100];
+        sprintf(outfile, "tests/output/hidden_msg%d.ppm", i);
+        
+        unsigned int chars_hidden = hide_message((char*)test_messages[i], 
+                                               "images/building1.ppm",
+                                               outfile);
+        printf("Characters hidden: %u\n", chars_hidden);
+        assert(chars_hidden > 0);
+        assert(chars_hidden <= strlen(test_messages[i]));
+        
+        char *revealed = reveal_message(outfile);
+        assert(revealed != NULL);
+        assert(strncmp(revealed, test_messages[i], chars_hidden) == 0);
+        free(revealed);
+    }
+    
+    // Test image steganography
+    printf("\nTesting image hiding...\n");
+    prepare_input_image_file("wolfie-tiny.ppm");
+    
+    unsigned int success = hide_image("images/wolfie-tiny.ppm",
+                                    "images/building1.ppm",
+                                    "tests/output/hidden_img_mod.ppm");
+    assert(success == 1);
+    
+    reveal_image("tests/output/hidden_img_mod.ppm",
+                 "tests/output/revealed_img_mod.ppm");
+    
+    // Verify revealed image
+    Image *original = load_image("images/wolfie-tiny.ppm");
+    Image *revealed = load_image("tests/output/revealed_img_mod.ppm");
+    assert(original && revealed);
+    assert(original->width == revealed->width);
+    assert(original->height == revealed->height);
+    
+    delete_image(original);
+    delete_image(revealed);
+    delete_image(cover);
+    
+    printf("Moderate steganography tests passed!\n");
+}
+
 int main() {
-    // Create output directory if needed
     struct stat st;
     if (stat("tests/output", &st) == -1)
         mkdir("tests/output", 0700);
-        
-    // Run all tests
+
+    test_create_quadtree_detailed();
+    test_save_preorder_detailed();
+    test_hide_message_detailed();
+    
     test_quadtree_creation();
     test_quadtree_io();
     test_steganography();
-    
+
+    test_quadtree_moderate();
+    test_steganography_moderate();
+
     printf("\nAll tests completed successfully!\n");
     return 0;
 }

@@ -233,16 +233,11 @@ static QTNode *load_preorder_qt_recursive(FILE *fp) {
     char type;
     unsigned int intensity, row, height, col, width;
     
-    // Read the node data
-    if (fscanf(fp, " %c %u %u %u %u %u", &type, &intensity, &row, &height, &col, &width) != 6) {
+    if (fscanf(fp, " %c %u %u %u %u %u\n", 
+               &type, &intensity, &row, &height, &col, &width) != 6) {
         return NULL;
     }
     
-    // Skip to next line
-    int c;
-    while ((c = fgetc(fp)) != EOF && c != '\n');
-    
-    // Create and initialize node
     QTNode *node = malloc(sizeof(QTNode));
     if (!node) return NULL;
     
@@ -253,28 +248,12 @@ static QTNode *load_preorder_qt_recursive(FILE *fp) {
     node->width = width;
     node->child1 = node->child2 = node->child3 = node->child4 = NULL;
     
-    // If it's an internal node, load its children
     if (type == 'N') {
+        // Try to load each child, but don't require all to be present
         node->child1 = load_preorder_qt_recursive(fp);
-        if (!node->child1) {
-            delete_quadtree(node);
-            return NULL;
-        }
         node->child2 = load_preorder_qt_recursive(fp);
-        if (!node->child2) {
-            delete_quadtree(node);
-            return NULL;
-        }
         node->child3 = load_preorder_qt_recursive(fp);
-        if (!node->child3) {
-            delete_quadtree(node);
-            return NULL;
-        }
         node->child4 = load_preorder_qt_recursive(fp);
-        if (!node->child4) {
-            delete_quadtree(node);
-            return NULL;
-        }
     }
     
     return node;

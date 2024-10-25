@@ -105,8 +105,6 @@ unsigned int hide_message(char *message, char *input_filename, char *output_file
     Image *img = load_image(input_filename);
     if (!img) return 0;
 
-    // Calculate maximum message length (including null terminator)
-    // Each character uses 8 pixels, and we need 8 more pixels for null terminator
     unsigned int max_chars = (img->width * img->height) / 8 - 1;
     unsigned int msg_len = strlen(message);
     unsigned int chars_to_hide = (msg_len < max_chars) ? msg_len : max_chars;
@@ -117,33 +115,31 @@ unsigned int hide_message(char *message, char *input_filename, char *output_file
         return 0;
     }
 
-    // Write PPM header
     fprintf(fp, "P3\n%d %d\n255\n", img->width, img->height);
 
     unsigned int bit_idx = 0;
     unsigned int char_idx = 0;
     unsigned char current_char = message[0];
 
-    // Hide message in image pixels
     for (unsigned int i = 0; i < img->height * img->width; i++) {
         unsigned char pixel = img->pixels[i];
         
-        // Modify pixels while we still have characters to hide
         if (char_idx <= chars_to_hide) {
-            // Clear LSB and set it to current bit of character
             pixel = (pixel & 0xFE) | ((current_char >> (7 - bit_idx)) & 1);
             
             bit_idx++;
             if (bit_idx == 8) {
                 bit_idx = 0;
                 char_idx++;
-                // Get next character or null terminator
                 current_char = (char_idx <= chars_to_hide) ? message[char_idx] : '\0';
             }
         }
 
-        // Write the pixel (same value for R,G,B since grayscale)
-        fprintf(fp, "%d %d %d ", pixel, pixel, pixel);
+        fprintf(fp, "%d %d %d", pixel, pixel, pixel);
+        if ((i + 1) % img->width == 0)
+            fprintf(fp, "\n");
+        else
+            fprintf(fp, " ");
     }
 
     fclose(fp);

@@ -232,8 +232,15 @@ static QTNode *load_preorder_qt_recursive(FILE *fp) {
     
     char type;
     unsigned int intensity, row, height, col, width;
+    char line[256];
     
-    if (fscanf(fp, " %c %u %u %u %u %u\n", 
+    // Read a line from the file
+    if (!fgets(line, sizeof(line), fp)) {
+        return NULL;
+    }
+    
+    // Parse the line
+    if (sscanf(line, "%c %u %u %u %u %u", 
                &type, &intensity, &row, &height, &col, &width) != 6) {
         return NULL;
     }
@@ -249,11 +256,27 @@ static QTNode *load_preorder_qt_recursive(FILE *fp) {
     node->child1 = node->child2 = node->child3 = node->child4 = NULL;
     
     if (type == 'N') {
-        // Try to load each child, but don't require all to be present
-        node->child1 = load_preorder_qt_recursive(fp);
-        node->child2 = load_preorder_qt_recursive(fp);
-        node->child3 = load_preorder_qt_recursive(fp);
-        node->child4 = load_preorder_qt_recursive(fp);
+        // For internal nodes, always try to read all four children
+        QTNode *children[4];
+        int valid_children = 0;
+        
+        // Try to read each child
+        for (int i = 0; i < 4; i++) {
+            children[i] = load_preorder_qt_recursive(fp);
+            if (children[i]) valid_children++;
+        }
+        
+        // Only assign children if we got at least one
+        if (valid_children > 0) {
+            node->child1 = children[0];
+            node->child2 = children[1];
+            node->child3 = children[2];
+            node->child4 = children[3];
+        } else {
+            // If no valid children were read, clean up and return NULL
+            free(node);
+            return NULL;
+        }
     }
     
     return node;

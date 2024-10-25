@@ -105,6 +105,7 @@ unsigned int hide_message(char *message, char *input_filename, char *output_file
     Image *img = load_image(input_filename);
     if (!img) return 0;
 
+    // Calculate maximum message length (including null terminator)
     unsigned int max_chars = (img->width * img->height) / 8 - 1;
     unsigned int msg_len = strlen(message);
     unsigned int chars_to_hide = (msg_len < max_chars) ? msg_len : max_chars;
@@ -115,31 +116,44 @@ unsigned int hide_message(char *message, char *input_filename, char *output_file
         return 0;
     }
 
+    // Write PPM header
     fprintf(fp, "P3\n%d %d\n255\n", img->width, img->height);
 
     unsigned int bit_idx = 0;
     unsigned int char_idx = 0;
     unsigned char current_char = message[0];
-
-    for (unsigned int i = 0; i < img->height * img->width; i++) {
+    
+    // Process all pixels
+    for (unsigned int i = 0; i < img->width * img->height; i++) {
         unsigned char pixel = img->pixels[i];
         
-        if (char_idx <= chars_to_hide) {
-            pixel = (pixel & 0xFE) | ((current_char >> (7 - bit_idx)) & 1);
+        // If we're still hiding message (including null terminator)
+        if (char_idx < chars_to_hide || (char_idx == chars_to_hide && bit_idx < 8)) {
+            unsigned char bit;
+            if (char_idx < chars_to_hide) {
+                bit = (current_char >> (7 - bit_idx)) & 1;
+            } else {
+                bit = 0; // For null terminator
+            }
+            pixel = (pixel & 0xFE) | bit;
             
             bit_idx++;
             if (bit_idx == 8) {
                 bit_idx = 0;
                 char_idx++;
-                current_char = (char_idx <= chars_to_hide) ? message[char_idx] : '\0';
+                if (char_idx < chars_to_hide) {
+                    current_char = message[char_idx];
+                }
             }
         }
-
+        
+        // Write pixel
         fprintf(fp, "%d %d %d", pixel, pixel, pixel);
-        if ((i + 1) % img->width == 0)
+        if ((i + 1) % img->width == 0) {
             fprintf(fp, "\n");
-        else
+        } else {
             fprintf(fp, " ");
+        }
     }
 
     fclose(fp);

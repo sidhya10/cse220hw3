@@ -233,16 +233,13 @@ static QTNode *load_preorder_qt_recursive(FILE *fp) {
     char type;
     unsigned int intensity, row, height, col, width;
     
-    // First try to read all values
-    int result = fscanf(fp, " %c %u %u %u %u %u", 
-                       &type, &intensity, &row, &height, &col, &width);
-    
-    // If we couldn't read 6 values, or type is neither 'N' nor 'L', return NULL
-    if (result != 6 || (type != 'N' && type != 'L')) {
+    // Read the node data
+    if (fscanf(fp, " %c %u %u %u %u %u", 
+               &type, &intensity, &row, &height, &col, &width) != 6) {
         return NULL;
     }
     
-    // Skip any remaining characters on this line
+    // Skip remaining characters until newline
     int c;
     while ((c = fgetc(fp)) != EOF && c != '\n');
     
@@ -260,29 +257,37 @@ static QTNode *load_preorder_qt_recursive(FILE *fp) {
     node->child3 = NULL;
     node->child4 = NULL;
     
-    // For internal nodes ('N'), recursively load children
+    // For internal nodes, load children based on the same pattern as create_node uses
     if (type == 'N') {
-        // Try to load each child
-        node->child1 = load_preorder_qt_recursive(fp);
-        if (node->child1) {  // Only continue if we got the first child
+        if (height == 1) {
+            // Single row case
+            node->child1 = load_preorder_qt_recursive(fp);
             node->child2 = load_preorder_qt_recursive(fp);
-            if (node->child2) {  // Only continue if we got the second child
-                node->child3 = load_preorder_qt_recursive(fp);
-                if (node->child3) {  // Only continue if we got the third child
-                    node->child4 = load_preorder_qt_recursive(fp);
-                    if (!node->child4) {  // If we fail to get fourth child, cleanup
-                        delete_quadtree(node);
-                        return NULL;
-                    }
-                } else {  // Failed to get third child
-                    delete_quadtree(node);
-                    return NULL;
-                }
-            } else {  // Failed to get second child
-                delete_quadtree(node);
-                return NULL;
-            }
-        } else {  // Failed to get first child
+        }
+        else if (width == 1) {
+            // Single column case
+            node->child1 = load_preorder_qt_recursive(fp);
+            node->child3 = load_preorder_qt_recursive(fp);
+        }
+        else {
+            // Regular case - load all four children
+            node->child1 = load_preorder_qt_recursive(fp);
+            node->child2 = load_preorder_qt_recursive(fp);
+            node->child3 = load_preorder_qt_recursive(fp);
+            node->child4 = load_preorder_qt_recursive(fp);
+        }
+        
+        // If we failed to load any expected children, clean up and return NULL
+        if (height == 1 && (!node->child1 || !node->child2)) {
+            delete_quadtree(node);
+            return NULL;
+        }
+        if (width == 1 && (!node->child1 || !node->child3)) {
+            delete_quadtree(node);
+            return NULL;
+        }
+        if (height > 1 && width > 1 && 
+            (!node->child1 || !node->child2 || !node->child3 || !node->child4)) {
             delete_quadtree(node);
             return NULL;
         }
